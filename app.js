@@ -245,6 +245,7 @@ const store = {
 const layerButtons = document.querySelectorAll('#layers button');
 function setMainLayer(key) {
   for (const name of ['topo', 'grijs', 'foto', 'bodem', 'geo', 'tijd', 'plantDichtheid', 'planten']) L[name].setVisible(STACKS[key].includes(name));
+  map.render();  // direct hertekenen, niet wachten op een zoom/verschuiving
   loadPlants();
   layerButtons.forEach((b) => b.setAttribute('aria-checked', String(b.dataset.layer === key)));
   document.getElementById('year-row').hidden = key !== 'tijd';
@@ -439,3 +440,6 @@ applyYear(startYear);
 setRelief(store.get('relief', 40));
 const startLayer = store.get('layer', 'bodem');
 setMainLayer(STACKS[startLayer] ? startLayer : 'bodem');
+// Op telefoons is de kaartgrootte bij het starten soms nog 0: opnieuw meten zodra de pagina staat
+requestAnimationFrame(() => map.updateSize());
+window.addEventListener('load', () => map.updateSize());
