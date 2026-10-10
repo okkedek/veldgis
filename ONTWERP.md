@@ -20,7 +20,9 @@ Midden op de kaart staat een **vizier (+)**. Daar gaat alles over.
 - **Kaart verschuiven met je vinger** → volgen gaat automatisch uit. Het vizier is nu een **zelf gekozen positie**.
 - **Een tik op de positieknop** brengt je terug naar je eigen plek.
 
-Zo heb je geen apart menu nodig om een positie te kiezen. "Wat is hier?" vraagt altijd de gegevens op onder het vizier.
+Zo heb je geen apart menu nodig om een positie te kiezen. Er staat bewust geen statuslabel op de kaart; de blauwe volgknop laat zien of je gevolgd wordt.
+
+**Twee standen:** met de ronde knop rechtsonder wissel je tussen **schermvullende kaart** (alle bediening weg, op Android ook de browserbalken) en **kaarten kiezen** (lagen, sliders, "Wat is hier?"). "Wat is hier?" vraagt altijd de gegevens op onder het vizier.
 
 ## 3. Scherm-indeling (telefoon, staand)
 
@@ -28,6 +30,10 @@ Zo heb je geen apart menu nodig om een positie te kiezen. "Wat is hier?" vraagt 
 ┌──────────────────────────────┐
 │                     ┌──────┐ │
 │                     │  ◎   │ │  ← Volg mij (GPS), groot en rond
+│                     └──────┘ │
+│                              │
+│                     ┌──────┐ │
+│                     │  ⛶   │ │  ← schermvullende kaart ⇄ kaarten kiezen
 │                     └──────┘ │
 │                              │
 │              +               │  ← vizier
@@ -39,7 +45,7 @@ Zo heb je geen apart menu nodig om een positie te kiezen. "Wat is hier?" vraagt 
 │ │ Reliëf  ━━━━●━━━━━━━  40%│ │  ← mengslider AHN-reliëf
 │ ├──────────────────────────┤ │
 │ │[Topo][Foto][Bodem][Geo]  │ │  ← laagkiezer, horizontaal te vegen
-│ │[Hoogte][Tijdreis]        │ │
+│ │[Natuur][Tijdreis]        │ │
 │ ├──────────────────────────┤ │
 │ │      WAT IS HIER?        │ │  ← grote knop, opent infopaneel
 │ └──────────────────────────┘ │
@@ -53,6 +59,7 @@ Zo heb je geen apart menu nodig om een positie te kiezen. "Wat is hier?" vraagt 
  LANDVORM     Trechtervormig droogdal
               Periglaciaal ontstaan, permafrost en smeltwater  [meer ›]
  HOOGTE       62,3 m +NAP
+ PLANTEN      2 soorten binnen 100 m: Bernagie, Citroenmelisse
  PLEK         RD 190048, 460052 · ±5 m GPS
 ```
 
@@ -68,7 +75,8 @@ Alle lagen zijn **getest**: ze werken, zijn CORS-vrij en draaien in RD (EPSG:289
 | Luchtfoto | PDOK Luchtfoto RGB | WMTS `Actueel_orthoHR` | – |
 | Bodem | BRO Bodemkaart 1:50.000 | WMS `bzk/bro-bodemkaart/wms/v1_0`, laag `soilarea` | bodemcode + naam |
 | Geomorfologie | BRO Geomorfologische kaart | WMS `bzk/bro-geomorfologischekaart/wms/v2_0`, laag `geomorphological_area` | landvorm, genese, reliëf, link naar WUR-legenda |
-| Hoogte (kleur) | AHN | WMS `rws/ahn/wms/v1_0`, laag `dtm_05m` | hoogte in m NAP |
+| Natuur | GBIF (o.a. iNaturalist, Waarneming.nl) | Uitgezoomd: dichtheidstegels `v2/map/occurrence/density` (planten, NL, sinds 2000). Ingezoomd: losse waarnemingen via `v1/occurrence/search` met Nederlandse namen (Nederlands Soortenregister) | plantensoorten binnen 100 m |
+| Hoogte | AHN | WMS `rws/ahn/wms/v1_0`, laag `dtm_05m` (alleen voor de hoogte in "Wat is hier?") | hoogte in m NAP |
 | Reliëf (schaduw) | AHN | WCS `rws/ahn/wcs/v1_0`, coverage `dtm_05m`; schaduw berekend in de browser | – |
 | Tijdreis | Kadaster Topotijdreis | ArcGIS-tegels `Historische_tijdreis_{jaar}`, **elk jaar 1815–2026** | – |
 
@@ -109,8 +117,9 @@ Zo zie je met reliëf op 50% stuwwallen, dekzandruggen, beekdalen en droogdalen 
 
 **Fase 1: prototype (nu gebouwd)**
 - Kaart in RD met vizier, GPS volgen en zelf positie kiezen door te verschuiven
-- 6 hoofdlagen, reliëf-mengslider, tijdreis-jaarslider
-- "Wat is hier?" met bodem, landvorm en hoogte
+- 6 hoofdlagen (Topo, Luchtfoto, Bodem, Geomorfologie, Natuur, Tijdreis), reliëf-mengslider, tijdreis-jaarslider
+- Wisselen tussen schermvullende kaart en kaartkeuze
+- "Wat is hier?" met bodem, landvorm, planten in de buurt en hoogte
 
 **Fase 2: veldwaardig**
 - PWA: op het beginscherm zetten, schermvullend, tegels cachen voor slecht bereik (service worker)

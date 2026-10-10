@@ -45,7 +45,6 @@ const L = {
   foto: wmts(`${PDOK}/hwh/luchtfotorgb/wmts/v1_0/Actueel_orthoHR/EPSG:28992/{z}/{x}/{y}.jpeg`, 'Luchtfoto © Beeldmateriaal NL'),
   bodem: wms(WMS.bodem, 'Bodemkaart © BRO / WUR', 0.85),
   geo: wms(WMS.geo, 'Geomorfologische kaart © BRO / WUR', 0.85),
-  hoogte: wms(WMS.ahn, 'AHN © Rijkswaterstaat', 0.9),
   tijd: new ol.layer.Tile({
     visible: false,
     source: new ol.source.XYZ({ projection: RD, tileGrid: tijdreisGrid, crossOrigin: 'anonymous', attributions: 'Topotijdreis © Kadaster' }),
@@ -58,7 +57,7 @@ const STACKS = {
   foto: ['foto'],
   bodem: ['grijs', 'bodem'],
   geo: ['grijs', 'geo'],
-  hoogte: ['grijs', 'hoogte'],
+  natuur: ['grijs', 'plantDichtheid', 'planten'],
   tijd: ['tijd'],
 };
 
@@ -135,6 +134,82 @@ L.relief = new ol.layer.Tile({
   }),
 });
 
+// ---------- Natuur: plantwaarnemingen uit GBIF (o.a. iNaturalist, Waarneming.nl) ----------
+const GBIF = 'https://api.gbif.org';
+const PLANT_YEARS = '2000,2026';
+const PLANT_DETAIL_RES = 4;   // ingezoomder dan dit: losse waarnemingen met namen
+const PLANT_LABEL_RES = 1.5;  // nog verder ingezoomd: namen bij de stippen
+
+// Uitgezoomd: dichtheid van waarnemingen (GBIF-tegels in Web Mercator, OpenLayers herprojecteert naar RD)
+L.plantDichtheid = new ol.layer.Tile({
+  visible: false, minResolution: PLANT_DETAIL_RES,
+  source: new ol.source.XYZ({
+    url: `${GBIF}/v2/map/occurrence/density/{z}/{x}/{y}@1x.png?srs=EPSG:3857&taxonKey=6&country=NL&year=${PLANT_YEARS}&bin=hex&hexPerTile=40&style=green.poly`,
+    crossOrigin: 'anonymous', attributions: 'Plantwaarnemingen © GBIF.org', maxZoom: 16,
+  }),
+});
+
+// Nederlandse naam per soort, één keer opgehaald
+const nameCache = new Map();
+function dutchName(key) {
+  if (!nameCache.has(key)) {
+    nameCache.set(key, fetch(`${GBIF}/v1/species/${key}/vernacularNames?limit=300`)
+      .then((r) => r.json())
+      .then((j) => {
+        const nl = (j.results || []).filter((x) => x.language === 'nld');
+        // Nederlands Soortenregister gaat voor, dan de rest
+        const n = (nl.find((x) => /Soortenregister/.test(x.source)) || nl[0])?.vernacularName;
+        return n ? n[0].toUpperCase() + n.slice(1) : null;
+      })
+      .catch(() => null));
+  }
+  return nameCache.get(key);
+}
+
+const plantSource = new ol.source.Vector({ attributions: 'Plantwaarnemingen © GBIF.org' });
+const plantDot = new ol.style.Circle({ radius: 7, fill: new ol.style.Fill({ color: '#2e8b2e' }), stroke: new ol.style.Stroke({ color: '#fff', width: 2.5 }) });
+const plantText = { font: '700 15px system-ui, sans-serif', fill: new ol.style.Fill({ color: '#0d2b0d' }), stroke: new ol.style.Stroke({ color: '#fff', width: 4 }), offsetY: -17 };
+L.planten = new ol.layer.Vector({
+  visible: false, maxResolution: PLANT_DETAIL_RES, source: plantSource, declutter: true,
+  style: (f, res) => new ol.style.Style({
+    image: plantDot,
+    text: res <= PLANT_LABEL_RES ? new ol.style.Text({ ...plantText, text: f.get('naam') }) : undefined,
+  }),
+});
+
+const rdToWkt = (ext) => {
+  const [a, b, c, d] = ol.proj.transformExtent(ext, RD, 'EPSG:4326').map((v) => v.toFixed(5));
+  return `POLYGON((${a} ${b},${c} ${b},${c} ${d},${a} ${d},${a} ${b}))`; // tegen de klok in, zoals GBIF wil
+};
+async function plantRecords(ext, max, signal) {
+  const out = [];
+  for (let offset = 0; offset < max; offset += 300) {
+    const q = new URLSearchParams({ geometry: rdToWkt(ext), kingdomKey: 6, year: PLANT_YEARS, hasGeospatialIssue: false, limit: 300, offset });
+    const j = await (await fetch(`${GBIF}/v1/occurrence/search?${q}`, { signal })).json();
+    out.push(...j.results.filter((r) => r.speciesKey && r.decimalLongitude));
+    if (j.endOfRecords) break;
+  }
+  return out;
+}
+
+let plantAbort;
+async function loadPlants() {
+  if (!L.planten.getVisible() || view.getResolution() > PLANT_DETAIL_RES) return;
+  plantAbort?.abort();
+  plantAbort = new AbortController();
+  let records;
+  try { records = await plantRecords(view.calculateExtent(map.getSize()), 900, plantAbort.signal); } catch { return; }
+  const added = [];
+  for (const r of records) {
+    if (plantSource.getFeatureById(r.key)) continue;
+    const f = new ol.Feature({ geometry: new ol.geom.Point(ol.proj.fromLonLat([r.decimalLongitude, r.decimalLatitude], RD)), key: r.speciesKey, naam: r.species });
+    f.setId(r.key);
+    added.push(f);
+  }
+  plantSource.addFeatures(added);
+  for (const f of added) dutchName(f.get('key')).then((n) => { if (n) f.set('naam', n); });
+}
+
 // ---------- Positie ----------
 const posSource = new ol.source.Vector();
 const posAccuracy = new ol.Feature();
@@ -152,11 +227,13 @@ const posLayer = new ol.layer.Vector({ source: posSource, zIndex: 100 });
 // ---------- Kaart ----------
 const map = new ol.Map({
   target: 'map',
-  layers: [L.topo, L.grijs, L.foto, L.bodem, L.geo, L.hoogte, L.tijd, L.relief, posLayer],
+  layers: [L.topo, L.grijs, L.foto, L.bodem, L.geo, L.tijd, L.plantDichtheid, L.relief, L.planten, posLayer],
   controls: [new ol.control.Attribution({ collapsible: true })],
   view: new ol.View({ projection: RD, center: [155000, 463000], resolution: 215, maxResolution: 860, minResolution: 0.1, constrainResolution: false }),
 });
 const view = map.getView();
+let plantTimer;
+map.on('moveend', () => { clearTimeout(plantTimer); plantTimer = setTimeout(loadPlants, 500); });
 
 // ---------- Instellingen onthouden ----------
 const store = {
@@ -167,7 +244,8 @@ const store = {
 // ---------- Hoofdlaag kiezen ----------
 const layerButtons = document.querySelectorAll('#layers button');
 function setMainLayer(key) {
-  for (const name of ['topo', 'grijs', 'foto', 'bodem', 'geo', 'hoogte', 'tijd']) L[name].setVisible(STACKS[key].includes(name));
+  for (const name of ['topo', 'grijs', 'foto', 'bodem', 'geo', 'tijd', 'plantDichtheid', 'planten']) L[name].setVisible(STACKS[key].includes(name));
+  loadPlants();
   layerButtons.forEach((b) => b.setAttribute('aria-checked', String(b.dataset.layer === key)));
   document.getElementById('year-row').hidden = key !== 'tijd';
   store.set('layer', key);
@@ -202,51 +280,53 @@ yearInput.addEventListener('input', () => {
 });
 
 // ---------- GPS volgen / zelf kiezen ----------
-const statusEl = document.getElementById('status');
 const followBtn = document.getElementById('btn-follow');
 let follow = true;
 let myPos = null;      // [x, y] in RD
-let myAccuracy = null;
 let firstFix = true;
 
 function setFollow(on) {
   follow = on;
   followBtn.setAttribute('aria-pressed', String(on));
   if (on && myPos) view.animate({ center: myPos, duration: 400 });
-  updateStatus();
-}
-function updateStatus() {
-  if (follow && myPos) statusEl.textContent = `Jouw positie · ±${Math.round(myAccuracy)} m`;
-  else if (follow) statusEl.textContent = 'Positie zoeken…';
-  else if (myPos) statusEl.textContent = `Gekozen punt · ${formatDist(distance(myPos, view.getCenter()))} van jou`;
-  else statusEl.textContent = 'Gekozen punt';
 }
 const distance = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 const formatDist = (m) => (m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toLocaleString('nl-NL', { maximumFractionDigits: 1 })} km`);
 
 followBtn.addEventListener('click', () => setFollow(true));
 map.on('pointerdrag', () => { if (follow) setFollow(false); });
-map.on('moveend', updateStatus);
 
 if ('geolocation' in navigator) {
   navigator.geolocation.watchPosition((p) => {
     myPos = ol.proj.fromLonLat([p.coords.longitude, p.coords.latitude], RD);
-    myAccuracy = p.coords.accuracy;
     posPoint.setGeometry(new ol.geom.Point(myPos));
-    posAccuracy.setGeometry(new ol.geom.Circle(myPos, myAccuracy));
+    posAccuracy.setGeometry(new ol.geom.Circle(myPos, p.coords.accuracy));
     if (follow) {
       if (firstFix) view.setResolution(3.36);
       view.setCenter(myPos);
     }
     firstFix = false;
-    updateStatus();
-  }, () => {
-    statusEl.textContent = 'Geen GPS · verschuif de kaart';
-    setFollow(false);
-  }, { enableHighAccuracy: true, maximumAge: 5000 });
+  }, () => setFollow(false), { enableHighAccuracy: true, maximumAge: 5000 });
 } else {
   setFollow(false);
 }
+
+// ---------- Schermvullende kaart <-> kaartkeuze ----------
+const appEl = document.getElementById('app');
+const fullBtn = document.getElementById('btn-full');
+function setFull(on) {
+  appEl.classList.toggle('full', on);
+  fullBtn.setAttribute('aria-pressed', String(on));
+  fullBtn.setAttribute('aria-label', on ? 'Kaarten kiezen' : 'Kaart schermvullend');
+  // Ook de browserbalken weg waar dat kan (Android); iOS negeert dit
+  try {
+    if (on && !document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
+    if (!on && document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  } catch { /* niet ondersteund */ }
+}
+fullBtn.addEventListener('click', () => setFull(!appEl.classList.contains('full')));
+// Terug-gebaar of Esc verlaat volledig scherm: dan ook de bediening terug
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && appEl.classList.contains('full')) setFull(false); });
 
 // ---------- Scherm aan houden ----------
 let wakeLock = null;
@@ -260,6 +340,20 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 const infoEl = document.getElementById('info');
 const infoBody = document.getElementById('info-body');
 const infoTitle = document.getElementById('info-title');
+
+// Plantensoorten binnen een vierkant van 2 x 100 m rond het punt, meest waargenomen eerst
+async function plantsNear([x, y], r = 100) {
+  const records = await plantRecords([x - r, y - r, x + r, y + r], 300);
+  const bySpecies = new Map();
+  for (const rec of records) {
+    const s = bySpecies.get(rec.speciesKey) || { key: rec.speciesKey, sci: rec.species, n: 0 };
+    s.n++;
+    bySpecies.set(rec.speciesKey, s);
+  }
+  const top = [...bySpecies.values()].sort((a, b) => b.n - a.n);
+  await Promise.all(top.slice(0, 15).map(async (s) => { s.nl = await dutchName(s.key); }));
+  return top;
+}
 
 async function featureInfo({ url, layer }, [x, y]) {
   const q = new URLSearchParams({
@@ -283,8 +377,8 @@ async function showInfo() {
   infoTitle.textContent = follow && myPos ? 'Hier sta je' : 'Op het vizier';
   if (!infoBody.innerHTML) infoBody.innerHTML = '<p class="loading">Ophalen…</p>';
 
-  const [bodem, geo, ahn] = await Promise.allSettled([
-    featureInfo(WMS.bodem, pt), featureInfo(WMS.geo, pt), featureInfo(WMS.ahn, pt),
+  const [bodem, geo, ahn, planten] = await Promise.allSettled([
+    featureInfo(WMS.bodem, pt), featureInfo(WMS.geo, pt), featureInfo(WMS.ahn, pt), plantsNear(pt),
   ]);
   if (seq !== infoSeq) return; // er is inmiddels een nieuwere vraag
 
@@ -304,6 +398,17 @@ async function showInfo() {
       g.landformSubgroupUrl && `<a href="${esc(g.landformSubgroupUrl)}" target="_blank" rel="noopener">Meer over ${esc(g.landformSubgroupCode)} ›</a>`,
     ].filter(Boolean).join('<br>');
     html += card('Landvorm', esc(g.landformSubgroupDescription), sub);
+  }
+
+  if (planten.status === 'rejected') html += card('Planten in de buurt', 'Niet bereikbaar');
+  else if (!planten.value.length) html += card('Planten in de buurt', 'Geen waarnemingen', 'Binnen 100 m sinds 2000. Dat zegt vooral iets over waarnemers, niet over de plek.');
+  else {
+    const list = planten.value.slice(0, 15).map((s) => s.nl
+      ? `<b>${esc(s.nl)}</b> <i>${esc(s.sci)}</i>${s.n > 1 ? ` (${s.n}×)` : ''}`
+      : `<b><i>${esc(s.sci)}</i></b>${s.n > 1 ? ` (${s.n}×)` : ''}`).join('<br>');
+    const more = planten.value.length > 15 ? `<br>… en ${planten.value.length - 15} andere soorten` : '';
+    html += card('Planten in de buurt', `${planten.value.length} ${planten.value.length === 1 ? 'soort' : 'soorten'} waargenomen`,
+      `${list}${more}<br><small>Binnen 100 m, sinds 2000 · bron GBIF</small>`);
   }
 
   const h = ahn.status === 'fulfilled' && ahn.value ? parseFloat(ahn.value.value_list) : NaN;
@@ -332,5 +437,5 @@ yearInput.value = startYear;
 yearLabel.textContent = startYear;
 applyYear(startYear);
 setRelief(store.get('relief', 40));
-setMainLayer(store.get('layer', 'bodem'));
-updateStatus();
+const startLayer = store.get('layer', 'bodem');
+setMainLayer(STACKS[startLayer] ? startLayer : 'bodem');

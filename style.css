@@ -36,12 +36,6 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
 #crosshair::before { left: 50%; top: 0; width: 3px; height: 100%; transform: translateX(-50%); }
 #crosshair::after { top: 50%; left: 0; height: 3px; width: 100%; transform: translateY(-50%); }
 
-.chip {
-  position: absolute; top: max(12px, env(safe-area-inset-top)); left: 12px; z-index: 5;
-  background: var(--paper); border: 2px solid var(--line); border-radius: 999px;
-  padding: 8px 14px; font-weight: 600; font-size: 16px; max-width: calc(100% - 120px);
-}
-
 .round {
   position: absolute; top: max(12px, env(safe-area-inset-top)); right: 12px; z-index: 5;
   width: 76px; height: 76px; border-radius: 50%;
@@ -50,7 +44,16 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
 }
 .round[aria-pressed="true"] { background: var(--gps); color: #fff; }
 
-.ol-attribution { bottom: 6px; right: 6px; font-size: 11px; }
+/* Wissel tussen schermvullende kaart en kaartkeuze */
+.round-bottom { top: auto; bottom: 12px; color: var(--ink); }
+.round-bottom[aria-pressed="true"] { background: var(--paper); color: var(--ink); bottom: max(12px, env(safe-area-inset-bottom)); }
+#btn-full .ico-close { display: none; }
+#btn-full[aria-pressed="true"] .ico-open { display: none; }
+#btn-full[aria-pressed="true"] .ico-close { display: inline; }
+#app.full #controls, #app.full #info { display: none; }
+
+.ol-attribution { bottom: 6px; left: 6px; right: auto; font-size: 11px; }
+.ol-attribution.ol-uncollapsible { left: 6px; }
 
 /* Bediening */
 #controls {
