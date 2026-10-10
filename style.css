@@ -80,10 +80,10 @@ input[type=range]::-moz-range-thumb {
   width: 40px; height: 40px; border-radius: 50%; background: var(--accent); border: 3px solid #fff; box-shadow: 0 0 0 2px var(--line);
 }
 
-#layers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+#layers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 #layers button {
   min-height: var(--tap); border: 2px solid var(--line); border-radius: 12px;
-  background: var(--paper); font-weight: 700; font-size: 17px; padding: 4px;
+  background: var(--paper); font-weight: 700; font-size: 15px; padding: 2px;
 }
 #layers button[aria-checked="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 

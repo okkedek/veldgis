@@ -1,4 +1,4 @@
-# Veldapp: ontwerp
+# Veldgis: ontwerp
 
 Een webapp voor in het veld. Je ziet op je eigen positie, of op een plek die je zelf kiest, open kaartlagen over het landschap: bodem, geomorfologie, hoogte en historische kaarten. Het doel is het landschap om je heen beter te begrijpen.
 
@@ -44,8 +44,8 @@ Zo heb je geen apart menu nodig om een positie te kiezen. Er staat bewust geen s
 │ ├──────────────────────────┤ │
 │ │ Reliëf  ━━━━●━━━━━━━  40%│ │  ← mengslider AHN-reliëf
 │ ├──────────────────────────┤ │
-│ │[Topo][Foto][Bodem][Geo]  │ │  ← laagkiezer, horizontaal te vegen
-│ │[Natuur][Tijdreis]        │ │
+│ │[Topo][Foto][Bodem][Geo]  │ │  ← laagkiezer, 4 × 2 grote knoppen
+│ │[Flora][Vogels][SNL][Tijd]│ │
 │ ├──────────────────────────┤ │
 │ │      WAT IS HIER?        │ │  ← grote knop, opent infopaneel
 │ └──────────────────────────┘ │
@@ -75,7 +75,9 @@ Alle lagen zijn **getest**: ze werken, zijn CORS-vrij en draaien in RD (EPSG:289
 | Luchtfoto | PDOK Luchtfoto RGB | WMTS `Actueel_orthoHR` | – |
 | Bodem | BRO Bodemkaart 1:50.000 | WMS `bzk/bro-bodemkaart/wms/v1_0`, laag `soilarea` | bodemcode + naam |
 | Geomorfologie | BRO Geomorfologische kaart | WMS `bzk/bro-geomorfologischekaart/wms/v2_0`, laag `geomorphological_area` | landvorm, genese, reliëf, link naar WUR-legenda |
-| Natuur | GBIF (o.a. iNaturalist, Waarneming.nl) | Uitgezoomd: dichtheidstegels `v2/map/occurrence/density` (planten, NL, sinds 2000). Ingezoomd: losse waarnemingen via `v1/occurrence/search` met Nederlandse namen (Nederlands Soortenregister) | plantensoorten binnen 100 m |
+| Flora | GBIF (vooral Waarneming.nl/ObsIdentify, Dutch Vegetation Database, Pl@ntNet, iNaturalist) | Uitgezoomd: dichtheidstegels `v2/map/occurrence/density` (planten, NL, sinds 2000). Ingezoomd: waarnemingen via `v1/occurrence/search`, gegroepeerd per plek, met Nederlandse namen (Nederlands Soortenregister) | plantensoorten binnen 100 m |
+| Vogels | GBIF (vooral Waarneming.nl, eBird), alleen menselijke waarnemingen sinds 2020 (zonder GPS-zenderdata) | Zelfde opzet als Flora | vogelsoorten binnen 250 m |
+| SNL-natuurtypen | Natuurbeheerplan, BIJ12 / provincies | WMS `geoservices.portaalnatuurenlandschap.nl/geoserver/IMNa_NBP/wms`, laag `imna_nbp_viewer_beheer_gebied`, stijl `IMNa_2026_definitief_beheergebied` | beheertype (bijv. N07.01 Droge heide) |
 | Hoogte | AHN | WMS `rws/ahn/wms/v1_0`, laag `dtm_05m` (alleen voor de hoogte in "Wat is hier?") | hoogte in m NAP |
 | Reliëf (schaduw) | AHN | WCS `rws/ahn/wcs/v1_0`, coverage `dtm_05m`; schaduw berekend in de browser | – |
 | Tijdreis | Kadaster Topotijdreis | ArcGIS-tegels `Historische_tijdreis_{jaar}`, **elk jaar 1815–2026** | – |
@@ -117,12 +119,13 @@ Zo zie je met reliëf op 50% stuwwallen, dekzandruggen, beekdalen en droogdalen 
 
 **Fase 1: prototype (nu gebouwd)**
 - Kaart in RD met vizier, GPS volgen en zelf positie kiezen door te verschuiven
-- 6 hoofdlagen (Topo, Luchtfoto, Bodem, Geomorfologie, Natuur, Tijdreis), reliëf-mengslider, tijdreis-jaarslider
+- 8 hoofdlagen (Topo, Luchtfoto, Bodem, Geomorfologie, Flora, Vogels, SNL, Tijdreis), reliëf-mengslider, tijdreis-jaarslider
+- Installeerbaar als app (PWA met manifest, iconen en service worker); start ook zonder bereik
 - Wisselen tussen schermvullende kaart en kaartkeuze
 - "Wat is hier?" met bodem, landvorm, planten in de buurt en hoogte
 
 **Fase 2: veldwaardig**
-- PWA: op het beginscherm zetten, schermvullend, tegels cachen voor slecht bereik (service worker)
+- Kaarttegels cachen voor gebieden zonder bereik
 - Zoeken op plaats of adres (PDOK Locatieserver)
 - Hoogteprofiel: teken een lijn en zie een doorsnede uit AHN
 - Kompasrichting (kijkrichting) op de positiestip

@@ -1,4 +1,4 @@
-/* Veldapp: prototype. Kaart in RD (EPSG:28992), data live van PDOK / AHN / Topotijdreis. */
+/* Veldgis. Kaart in RD (EPSG:28992), data live van PDOK / AHN / Topotijdreis. */
 
 // ---------- Projectie & tegelroosters ----------
 proj4.defs('EPSG:28992',
@@ -24,6 +24,8 @@ const WMS = {
   bodem: { url: `${PDOK}/bzk/bro-bodemkaart/wms/v1_0`, layer: 'soilarea' },
   geo: { url: `${PDOK}/bzk/bro-geomorfologischekaart/wms/v2_0`, layer: 'geomorphological_area' },
   ahn: { url: `${PDOK}/rws/ahn/wms/v1_0`, layer: 'dtm_05m' },
+  // SNL-beheertypenkaart uit het Natuurbeheerplan (BIJ12); de stijl kiest het plan van dit jaar
+  snl: { url: 'https://geoservices.portaalnatuurenlandschap.nl/geoserver/IMNa_NBP/wms', layer: 'imna_nbp_viewer_beheer_gebied', style: 'IMNa_2026_definitief_beheergebied' },
 };
 const AHN_WCS = `${PDOK}/rws/ahn/wcs/v1_0`;
 
@@ -31,11 +33,11 @@ const wmts = (url, attributions) => new ol.layer.Tile({
   visible: false,
   source: new ol.source.XYZ({ url, projection: RD, tileGrid: pdokGrid, crossOrigin: 'anonymous', attributions }),
 });
-const wms = ({ url, layer }, attributions, opacity = 1) => new ol.layer.Tile({
-  visible: false, opacity,
+const wms = ({ url, layer, style = '' }, attributions, opacity = 1, maxResolution) => new ol.layer.Tile({
+  visible: false, opacity, maxResolution,
   source: new ol.source.TileWMS({
     url, projection: RD, tileGrid: pdokGrid, crossOrigin: 'anonymous', attributions,
-    params: { LAYERS: layer, FORMAT: 'image/png', TRANSPARENT: true, VERSION: '1.3.0' },
+    params: { LAYERS: layer, STYLES: style, FORMAT: 'image/png', TRANSPARENT: true, VERSION: '1.3.0' },
   }),
 });
 
@@ -45,6 +47,7 @@ const L = {
   foto: wmts(`${PDOK}/hwh/luchtfotorgb/wmts/v1_0/Actueel_orthoHR/EPSG:28992/{z}/{x}/{y}.jpeg`, 'Luchtfoto © Beeldmateriaal NL'),
   bodem: wms(WMS.bodem, 'Bodemkaart © BRO / WUR', 0.85),
   geo: wms(WMS.geo, 'Geomorfologische kaart © BRO / WUR', 0.85),
+  snl: wms(WMS.snl, 'Beheertypen Natuurbeheerplan © BIJ12 / provincies', 0.75, 14),  // de dienst tekent pas vanaf ~1:50.000
   tijd: new ol.layer.Tile({
     visible: false,
     source: new ol.source.XYZ({ projection: RD, tileGrid: tijdreisGrid, crossOrigin: 'anonymous', attributions: 'Topotijdreis © Kadaster' }),
@@ -57,7 +60,9 @@ const STACKS = {
   foto: ['foto'],
   bodem: ['grijs', 'bodem'],
   geo: ['grijs', 'geo'],
-  natuur: ['grijs', 'plantDichtheid', 'planten'],
+  flora: ['grijs', 'floraDichtheid', 'floraPunten'],
+  vogels: ['grijs', 'vogelsDichtheid', 'vogelsPunten'],
+  snl: ['grijs', 'snl'],
   tijd: ['tijd'],
 };
 
@@ -134,20 +139,26 @@ L.relief = new ol.layer.Tile({
   }),
 });
 
-// ---------- Natuur: plantwaarnemingen uit GBIF (o.a. iNaturalist, Waarneming.nl) ----------
+// ---------- Flora & vogels: waarnemingen uit GBIF (vooral Waarneming.nl/ObsIdentify, eBird, iNaturalist) ----------
 const GBIF = 'https://api.gbif.org';
-const PLANT_YEARS = '2000,2026';
-const PLANT_DETAIL_RES = 4;   // ingezoomder dan dit: losse waarnemingen met namen
-const PLANT_LABEL_RES = 1.5;  // nog verder ingezoomd: namen bij de stippen
+const DETAIL_RES = 4;   // ingezoomder dan dit: losse waarnemingen in plaats van dichtheid
+const LABEL_RES = 1.5;  // nog verder ingezoomd: namen bij de stippen
 
-// Uitgezoomd: dichtheid van waarnemingen (GBIF-tegels in Web Mercator, OpenLayers herprojecteert naar RD)
-L.plantDichtheid = new ol.layer.Tile({
-  visible: false, minResolution: PLANT_DETAIL_RES,
-  source: new ol.source.XYZ({
-    url: `${GBIF}/v2/map/occurrence/density/{z}/{x}/{y}@1x.png?srs=EPSG:3857&taxonKey=6&country=NL&year=${PLANT_YEARS}&bin=hex&hexPerTile=40&style=green.poly`,
-    crossOrigin: 'anonymous', attributions: 'Plantwaarnemingen © GBIF.org', maxZoom: 16,
-  }),
-});
+const OBS = {
+  flora: {
+    filter: { kingdomKey: 6, year: '2000,2026' },
+    tiles: 'taxonKey=6&year=2000,2026&style=green.poly',
+    color: '#2e8b2e', ink: '#0d2b0d', radius: 100, since: 2000,
+    attributions: 'Plantwaarnemingen © GBIF.org',
+  },
+  vogels: {
+    // Alleen menselijke waarnemingen: zonder GPS-zenderdata van meeuwen e.d.
+    filter: { classKey: 212, year: '2020,2026', basisOfRecord: 'HUMAN_OBSERVATION' },
+    tiles: 'taxonKey=212&year=2020,2026&basisOfRecord=HUMAN_OBSERVATION&style=red.poly',
+    color: '#c0392b', ink: '#4a0d06', radius: 250, since: 2020,
+    attributions: 'Vogelwaarnemingen © GBIF.org',
+  },
+};
 
 // Nederlandse naam per soort, één keer opgehaald
 const nameCache = new Map();
@@ -166,25 +177,14 @@ function dutchName(key) {
   return nameCache.get(key);
 }
 
-const plantSource = new ol.source.Vector({ attributions: 'Plantwaarnemingen © GBIF.org' });
-const plantDot = new ol.style.Circle({ radius: 7, fill: new ol.style.Fill({ color: '#2e8b2e' }), stroke: new ol.style.Stroke({ color: '#fff', width: 2.5 }) });
-const plantText = { font: '700 15px system-ui, sans-serif', fill: new ol.style.Fill({ color: '#0d2b0d' }), stroke: new ol.style.Stroke({ color: '#fff', width: 4 }), offsetY: -17 };
-L.planten = new ol.layer.Vector({
-  visible: false, maxResolution: PLANT_DETAIL_RES, source: plantSource, declutter: true,
-  style: (f, res) => new ol.style.Style({
-    image: plantDot,
-    text: res <= PLANT_LABEL_RES ? new ol.style.Text({ ...plantText, text: f.get('naam') }) : undefined,
-  }),
-});
-
 const rdToWkt = (ext) => {
   const [a, b, c, d] = ol.proj.transformExtent(ext, RD, 'EPSG:4326').map((v) => v.toFixed(5));
   return `POLYGON((${a} ${b},${c} ${b},${c} ${d},${a} ${d},${a} ${b}))`; // tegen de klok in, zoals GBIF wil
 };
-async function plantRecords(ext, max, signal) {
+async function obsRecords(kind, ext, max, signal) {
   const out = [];
   for (let offset = 0; offset < max; offset += 300) {
-    const q = new URLSearchParams({ geometry: rdToWkt(ext), kingdomKey: 6, year: PLANT_YEARS, hasGeospatialIssue: false, limit: 300, offset });
+    const q = new URLSearchParams({ ...OBS[kind].filter, geometry: rdToWkt(ext), hasGeospatialIssue: false, limit: 300, offset });
     const j = await (await fetch(`${GBIF}/v1/occurrence/search?${q}`, { signal })).json();
     out.push(...j.results.filter((r) => r.speciesKey && r.decimalLongitude));
     if (j.endOfRecords) break;
@@ -192,22 +192,66 @@ async function plantRecords(ext, max, signal) {
   return out;
 }
 
-let plantAbort;
-async function loadPlants() {
-  if (!L.planten.getVisible() || view.getResolution() > PLANT_DETAIL_RES) return;
-  plantAbort?.abort();
-  plantAbort = new AbortController();
+for (const [kind, o] of Object.entries(OBS)) {
+  // Uitgezoomd: dichtheid (GBIF-tegels in Web Mercator, OpenLayers herprojecteert naar RD)
+  L[`${kind}Dichtheid`] = new ol.layer.Tile({
+    visible: false, minResolution: DETAIL_RES,
+    source: new ol.source.XYZ({
+      url: `${GBIF}/v2/map/occurrence/density/{z}/{x}/{y}@1x.png?srs=EPSG:3857&country=NL&bin=hex&hexPerTile=40&${o.tiles}`,
+      crossOrigin: 'anonymous', attributions: o.attributions, maxZoom: 16,
+    }),
+  });
+  // Ingezoomd: losse waarnemingen, met naam als je ver genoeg inzoomt
+  const dot = new ol.style.Circle({ radius: 7, fill: new ol.style.Fill({ color: o.color }), stroke: new ol.style.Stroke({ color: '#fff', width: 2.5 }) });
+  const bigDot = new ol.style.Circle({ radius: 10, fill: new ol.style.Fill({ color: o.color }), stroke: new ol.style.Stroke({ color: '#fff', width: 3 }) });
+  const text = { font: '700 15px system-ui, sans-serif', fill: new ol.style.Fill({ color: o.ink }), stroke: new ol.style.Stroke({ color: '#fff', width: 4 }), offsetY: -17 };
+  L[`${kind}Punten`] = new ol.layer.Vector({
+    visible: false, maxResolution: DETAIL_RES, declutter: true,
+    source: new ol.source.Vector({ attributions: o.attributions }),
+    style: (f, res) => {
+      const names = [...f.get('soorten').values()];
+      const label = names.length > 1 ? `${names[0]} +${names.length - 1}` : names[0];
+      return new ol.style.Style({
+        image: names.length > 1 ? bigDot : dot,
+        text: res <= LABEL_RES ? new ol.style.Text({ ...text, text: label }) : undefined,
+      });
+    },
+  });
+}
+
+let obsAbort;
+async function loadObservations() {
+  const kind = Object.keys(OBS).find((k) => L[`${k}Punten`].getVisible());
+  if (!kind || view.getResolution() > DETAIL_RES) return;
+  obsAbort?.abort();
+  obsAbort = new AbortController();
+  const source = L[`${kind}Punten`].getSource();
   let records;
-  try { records = await plantRecords(view.calculateExtent(map.getSize()), 900, plantAbort.signal); } catch { return; }
-  const added = [];
+  try { records = await obsRecords(kind, view.calculateExtent(map.getSize()), 900, obsAbort.signal); } catch { return; }
+  // Meldingen op (bijna) dezelfde plek worden één stip: vogelaars zetten vaak een hele lijst op één punt
+  const seen = OBS[kind].seen ??= new Set();
+  const touched = new Set();
   for (const r of records) {
-    if (plantSource.getFeatureById(r.key)) continue;
-    const f = new ol.Feature({ geometry: new ol.geom.Point(ol.proj.fromLonLat([r.decimalLongitude, r.decimalLatitude], RD)), key: r.speciesKey, naam: r.species });
-    f.setId(r.key);
-    added.push(f);
+    if (seen.has(r.key)) continue;
+    seen.add(r.key);
+    const xy = ol.proj.fromLonLat([r.decimalLongitude, r.decimalLatitude], RD);
+    const id = xy.map((v) => Math.round(v / 5) * 5).join(',');
+    let f = source.getFeatureById(id);
+    if (!f) {
+      f = new ol.Feature({ geometry: new ol.geom.Point(xy), soorten: new Map() });
+      f.setId(id);
+      source.addFeature(f);
+    }
+    if (!f.get('soorten').has(r.speciesKey)) {
+      f.get('soorten').set(r.speciesKey, r.species);
+      touched.add(f);
+    }
   }
-  plantSource.addFeatures(added);
-  for (const f of added) dutchName(f.get('key')).then((n) => { if (n) f.set('naam', n); });
+  for (const f of touched) {
+    for (const key of f.get('soorten').keys()) {
+      dutchName(key).then((n) => { if (n) { f.get('soorten').set(key, n); f.changed(); } });
+    }
+  }
 }
 
 // ---------- Positie ----------
@@ -227,13 +271,13 @@ const posLayer = new ol.layer.Vector({ source: posSource, zIndex: 100 });
 // ---------- Kaart ----------
 const map = new ol.Map({
   target: 'map',
-  layers: [L.topo, L.grijs, L.foto, L.bodem, L.geo, L.tijd, L.plantDichtheid, L.relief, L.planten, posLayer],
+  layers: [L.topo, L.grijs, L.foto, L.bodem, L.geo, L.tijd, L.snl, L.floraDichtheid, L.vogelsDichtheid, L.relief, L.floraPunten, L.vogelsPunten, posLayer],
   controls: [new ol.control.Attribution({ collapsible: true })],
   view: new ol.View({ projection: RD, center: [155000, 463000], resolution: 215, maxResolution: 860, minResolution: 0.1, constrainResolution: false }),
 });
 const view = map.getView();
-let plantTimer;
-map.on('moveend', () => { clearTimeout(plantTimer); plantTimer = setTimeout(loadPlants, 500); });
+let obsTimer;
+map.on('moveend', () => { clearTimeout(obsTimer); obsTimer = setTimeout(loadObservations, 500); });
 
 // ---------- Instellingen onthouden ----------
 const store = {
@@ -244,9 +288,9 @@ const store = {
 // ---------- Hoofdlaag kiezen ----------
 const layerButtons = document.querySelectorAll('#layers button');
 function setMainLayer(key) {
-  for (const name of ['topo', 'grijs', 'foto', 'bodem', 'geo', 'tijd', 'plantDichtheid', 'planten']) L[name].setVisible(STACKS[key].includes(name));
+  for (const name of ['topo', 'grijs', 'foto', 'bodem', 'geo', 'snl', 'tijd', 'floraDichtheid', 'floraPunten', 'vogelsDichtheid', 'vogelsPunten']) L[name].setVisible(STACKS[key].includes(name));
   map.render();  // direct hertekenen, niet wachten op een zoom/verschuiving
-  loadPlants();
+  loadObservations();
   layerButtons.forEach((b) => b.setAttribute('aria-checked', String(b.dataset.layer === key)));
   document.getElementById('year-row').hidden = key !== 'tijd';
   store.set('layer', key);
@@ -342,25 +386,39 @@ const infoEl = document.getElementById('info');
 const infoBody = document.getElementById('info-body');
 const infoTitle = document.getElementById('info-title');
 
-// Plantensoorten binnen een vierkant van 2 x 100 m rond het punt, meest waargenomen eerst
-async function plantsNear([x, y], r = 100) {
-  const records = await plantRecords([x - r, y - r, x + r, y + r], 300);
+// Soorten binnen een vierkant rond het punt, meest waargenomen eerst
+async function speciesNear(kind, [x, y]) {
+  const r = OBS[kind].radius;
+  const records = await obsRecords(kind, [x - r, y - r, x + r, y + r], 900);
   const bySpecies = new Map();
   for (const rec of records) {
-    const s = bySpecies.get(rec.speciesKey) || { key: rec.speciesKey, sci: rec.species, n: 0 };
-    s.n++;
-    bySpecies.set(rec.speciesKey, s);
+    const sp = bySpecies.get(rec.speciesKey) || { key: rec.speciesKey, sci: rec.species, n: 0 };
+    sp.n++;
+    bySpecies.set(rec.speciesKey, sp);
   }
   const top = [...bySpecies.values()].sort((a, b) => b.n - a.n);
-  await Promise.all(top.slice(0, 15).map(async (s) => { s.nl = await dutchName(s.key); }));
+  await Promise.all(top.slice(0, 15).map(async (sp) => { sp.nl = await dutchName(sp.key); }));
   return top;
 }
 
-async function featureInfo({ url, layer }, [x, y]) {
+function speciesCard(kind, title, result) {
+  const o = OBS[kind];
+  if (result.status === 'rejected') return card(title, 'Niet bereikbaar');
+  const list = result.value;
+  if (!list.length) return card(title, 'Geen waarnemingen', `Binnen ${o.radius} m sinds ${o.since}. Dat zegt vooral iets over waarnemers, niet over de plek.`);
+  const lines = list.slice(0, 15).map((sp) => (sp.nl
+    ? `<b>${esc(sp.nl)}</b> <i>${esc(sp.sci)}</i>`
+    : `<b><i>${esc(sp.sci)}</i></b>`) + (sp.n > 1 ? ` (${sp.n}×)` : '')).join('<br>');
+  const more = list.length > 15 ? `<br>… en ${list.length - 15} andere soorten` : '';
+  return card(title, `${list.length} ${list.length === 1 ? 'soort' : 'soorten'} waargenomen`,
+    `${lines}${more}<br><small>Binnen ${o.radius} m, sinds ${o.since} · bron GBIF</small>`);
+}
+
+async function featureInfo({ url, layer, style = '' }, [x, y]) {
   const q = new URLSearchParams({
     SERVICE: 'WMS', VERSION: '1.3.0', REQUEST: 'GetFeatureInfo', CRS: 'EPSG:28992',
     BBOX: `${x - 5},${y - 5},${x + 5},${y + 5}`, WIDTH: 11, HEIGHT: 11, I: 5, J: 5,
-    LAYERS: layer, QUERY_LAYERS: layer, STYLES: '', INFO_FORMAT: 'application/json',
+    LAYERS: layer, QUERY_LAYERS: layer, STYLES: style, INFO_FORMAT: 'application/json',
   });
   const res = await fetch(`${url}?${q}`);
   const json = await res.json();
@@ -378,8 +436,9 @@ async function showInfo() {
   infoTitle.textContent = follow && myPos ? 'Hier sta je' : 'Op het vizier';
   if (!infoBody.innerHTML) infoBody.innerHTML = '<p class="loading">Ophalen…</p>';
 
-  const [bodem, geo, ahn, planten] = await Promise.allSettled([
-    featureInfo(WMS.bodem, pt), featureInfo(WMS.geo, pt), featureInfo(WMS.ahn, pt), plantsNear(pt),
+  const [bodem, geo, ahn, snl, flora, vogels] = await Promise.allSettled([
+    featureInfo(WMS.bodem, pt), featureInfo(WMS.geo, pt), featureInfo(WMS.ahn, pt), featureInfo(WMS.snl, pt),
+    speciesNear('flora', pt), speciesNear('vogels', pt),
   ]);
   if (seq !== infoSeq) return; // er is inmiddels een nieuwere vraag
 
@@ -401,16 +460,14 @@ async function showInfo() {
     html += card('Landvorm', esc(g.landformSubgroupDescription), sub);
   }
 
-  if (planten.status === 'rejected') html += card('Planten in de buurt', 'Niet bereikbaar');
-  else if (!planten.value.length) html += card('Planten in de buurt', 'Geen waarnemingen', 'Binnen 100 m sinds 2000. Dat zegt vooral iets over waarnemers, niet over de plek.');
-  else {
-    const list = planten.value.slice(0, 15).map((s) => s.nl
-      ? `<b>${esc(s.nl)}</b> <i>${esc(s.sci)}</i>${s.n > 1 ? ` (${s.n}×)` : ''}`
-      : `<b><i>${esc(s.sci)}</i></b>${s.n > 1 ? ` (${s.n}×)` : ''}`).join('<br>');
-    const more = planten.value.length > 15 ? `<br>… en ${planten.value.length - 15} andere soorten` : '';
-    html += card('Planten in de buurt', `${planten.value.length} ${planten.value.length === 1 ? 'soort' : 'soorten'} waargenomen`,
-      `${list}${more}<br><small>Binnen 100 m, sinds 2000 · bron GBIF</small>`);
-  }
+  if (snl.status === 'rejected') html += card('Natuurtype (SNL)', 'Niet bereikbaar');
+  else if (!snl.value) html += card('Natuurtype (SNL)', 'Geen beheertype', 'Valt buiten het Natuurbeheerplan.');
+  else html += card('Natuurtype (SNL)', esc(snl.value.beheer_type_desc), `Beheertype ${esc(snl.value.beheer_type)} · ${esc(snl.value.provincie_desc)}, plan ${esc(snl.value.subsidie_jaar)}`);
+
+  // De kaart die je bekijkt eerst
+  const species = [speciesCard('flora', 'Flora in de buurt', flora), speciesCard('vogels', 'Vogels in de buurt', vogels)];
+  if (L.vogelsPunten.getVisible()) species.reverse();
+  html += species.join('');
 
   const h = ahn.status === 'fulfilled' && ahn.value ? parseFloat(ahn.value.value_list) : NaN;
   html += card('Hoogte', Number.isFinite(h) && h < 1000
@@ -438,8 +495,14 @@ yearInput.value = startYear;
 yearLabel.textContent = startYear;
 applyYear(startYear);
 setRelief(store.get('relief', 40));
-const startLayer = store.get('layer', 'bodem');
+let startLayer = store.get('layer', 'bodem');
+if (startLayer === 'natuur') startLayer = 'flora';  // oude naam
 setMainLayer(STACKS[startLayer] ? startLayer : 'bodem');
 // Op telefoons is de kaartgrootte bij het starten soms nog 0: opnieuw meten zodra de pagina staat
 requestAnimationFrame(() => map.updateSize());
 window.addEventListener('load', () => map.updateSize());
+
+// ---------- Installeerbaar als app (PWA) ----------
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}

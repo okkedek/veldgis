@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <clipPath id="rechts"><rect x="256" y="0" width="256" height="512"/></clipPath>
+    <path id="pin" d="M256 322 C232 280 190 246 190 192 A66 66 0 1 1 322 192 C322 246 280 280 256 322 Z"/>
+  </defs>
+  <rect width="512" height="512" fill="#ffffff"/>
+  <g transform="translate(0 -8)">
+    <!-- kaartblad in perspectief, open waar de pin staat -->
+    <path d="M222 286 H160 L100 352 H412 L352 286 H290" fill="none" stroke="#5ba83f" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- zachte schaduw van de pin op de kaart -->
+    <ellipse cx="256" cy="324" rx="34" ry="8" fill="#000" opacity=".12"/>
+    <!-- pin: links wit, rechts geel -->
+    <use href="#pin" fill="#ffffff"/>
+    <use href="#pin" fill="#f6d743" clip-path="url(#rechts)"/>
+    <use href="#pin" fill="none" stroke="#2b2b2b" stroke-width="14" stroke-linejoin="round"/>
+    <circle cx="256" cy="190" r="23" fill="#ffffff" stroke="#2b2b2b" stroke-width="12"/>
+    <!-- bodemlagen -->
+    <line x1="112" y1="390" x2="400" y2="390" stroke="#cfcfcf" stroke-width="16" stroke-linecap="round"/>
+    <line x1="112" y1="422" x2="400" y2="422" stroke="#7b5e57" stroke-width="16" stroke-linecap="round"/>
+    <line x1="112" y1="454" x2="400" y2="454" stroke="#f2dc4f" stroke-width="16" stroke-linecap="round"/>
+  </g>
+</svg>
