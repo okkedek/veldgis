@@ -212,7 +212,7 @@ for (const [kind, o] of Object.entries(OBS)) {
     visible: false, maxResolution: DETAIL_RES, declutter: true,
     source: new ol.source.Vector({ attributions: o.attributions }),
     style: (f, res) => {
-      const names = [...f.get('soorten').values()];
+      const names = [...f.get('soorten').values()].map((sp) => sp.naam);
       const label = names.length > 1 ? `${names[0]} +${names.length - 1}` : names[0];
       return new ol.style.Style({
         image: names.length > 1 ? bigDot : dot,
@@ -248,13 +248,13 @@ async function loadObservations() {
     const datum = r.eventDate?.slice(0, 10);
     if (datum && !(f.get('datum') >= datum)) f.set('datum', datum, true);  // laatste waarneming op deze plek
     if (!f.get('soorten').has(r.speciesKey)) {
-      f.get('soorten').set(r.speciesKey, r.species);
+      f.get('soorten').set(r.speciesKey, { sci: r.species, naam: r.species });
       touched.add(f);
     }
   }
   for (const f of touched) {
     for (const key of f.get('soorten').keys()) {
-      dutchName(key).then((n) => { if (n) { f.get('soorten').set(key, n); f.changed(); scheduleChip(300); } });
+      dutchName(key).then((n) => { if (n) { f.get('soorten').get(key).naam = n; f.changed(); scheduleChip(300); } });
     }
   }
   scheduleChip(0);
@@ -416,9 +416,8 @@ function speciesCard(kind, title, result) {
   if (result.status === 'rejected') return card(title, 'Niet bereikbaar');
   const list = result.value;
   if (!list.length) return card(title, 'Geen waarnemingen', `Binnen ${o.radius} m sinds ${o.since}. Dat zegt vooral iets over waarnemers, niet over de plek.`);
-  const lines = list.slice(0, 15).map((sp) => (sp.nl
-    ? `<b>${esc(sp.nl)}</b> <i>${esc(sp.sci)}</i>`
-    : `<b><i>${esc(sp.sci)}</i></b>`) + (sp.n > 1 ? ` (${sp.n}×)` : '')).join('<br>');
+  const lines = list.slice(0, 15).map((sp) => `<b>${speciesLink(sp)}</b>${sp.nl ? ` <i>${esc(sp.sci)}</i>` : ''}`
+    + (sp.n > 1 ? ` (${sp.n}×)` : '')).join('<br>');
   const more = list.length > 15 ? `<br>… en ${list.length - 15} andere soorten` : '';
   return card(title, `${list.length} ${list.length === 1 ? 'soort' : 'soorten'} waargenomen`,
     `${lines}${more}<br><small>Binnen ${o.radius} m, sinds ${o.since} · bron GBIF</small>`);
@@ -436,6 +435,19 @@ async function featureInfo({ url, layer, style = '' }, [x, y]) {
 }
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// Doorklikken naar uitleg
+const link = (url, html) => `<a href="${esc(url)}" target="_blank" rel="noopener">${html}</a>`;
+const soilUrl = (code) => `https://legenda-bodemkaart.bodemdata.nl/bodemklasse/${encodeURIComponent(code)}`;
+const speciesUrl = (sci) => `https://nl.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(sci)}&go=Go`;
+const cropUrl = (gewas) => speciesUrl(gewas.split(',')[0]);
+let snlPaths = null;
+async function snlUrl(code) {
+  snlPaths ??= fetch('data/snl-beheertypen.json').then((r) => r.json()).catch(() => ({}));
+  const p = (await snlPaths)[code];
+  return p ? `https://www.bij12.nl/onderwerp/natuursubsidies/index-natuur-en-landschap/${p}` : `https://www.bij12.nl/?s=${encodeURIComponent(code)}`;
+}
+const speciesLink = (sp) => link(speciesUrl(sp.sci), esc(sp.nl || sp.naam || sp.sci));
+
 const card = (k, v, s = '') => `<div class="card"><div class="k">${k}</div><div class="v">${v}</div>${s ? `<div class="s">${s}</div>` : ''}</div>`;
 
 let infoSeq = 0;
@@ -455,7 +467,7 @@ async function showInfo() {
   let html = '';
   if (bodem.status === 'rejected') html += card('Bodem', 'Niet bereikbaar');
   else if (!bodem.value) html += card('Bodem', 'Niet gekarteerd', 'Vaak bebouwing, water of vergraven grond.');
-  else html += card('Bodem', esc(bodem.value.first_soilname || bodem.value.normal_soilprofile_name), `Code ${esc(bodem.value.soilcode)}`);
+  else html += card('Bodem', link(soilUrl(bodem.value.soilcode), esc(bodem.value.first_soilname || bodem.value.normal_soilprofile_name)), `Code ${esc(bodem.value.soilcode)} · ${link(soilUrl(bodem.value.soilcode), 'uitleg bodemtype ›')}`);
 
   if (geo.status === 'rejected') html += card('Landvorm', 'Niet bereikbaar');
   else if (!geo.value) html += card('Landvorm', 'Niet gekarteerd');
@@ -467,16 +479,20 @@ async function showInfo() {
       g.reliefKlasse && esc(g.reliefKlasse),
       g.landformSubgroupUrl && `<a href="${esc(g.landformSubgroupUrl)}" target="_blank" rel="noopener">Meer over ${esc(g.landformSubgroupCode)} ›</a>`,
     ].filter(Boolean).join('<br>');
-    html += card('Landvorm', esc(g.landformSubgroupDescription), sub);
+    html += card('Landvorm', g.landformSubgroupUrl ? link(g.landformSubgroupUrl, esc(g.landformSubgroupDescription)) : esc(g.landformSubgroupDescription), sub);
   }
 
   if (snl.status === 'rejected') html += card('Natuurtype (SNL)', 'Niet bereikbaar');
   else if (!snl.value) html += card('Natuurtype (SNL)', 'Geen beheertype', 'Valt buiten het Natuurbeheerplan.');
-  else html += card('Natuurtype (SNL)', esc(snl.value.beheer_type_desc), `Beheertype ${esc(snl.value.beheer_type)} · ${esc(snl.value.provincie_desc)}, plan ${esc(snl.value.subsidie_jaar)}`);
+  else {
+    const url = await snlUrl(snl.value.beheer_type);
+    html += card('Natuurtype (SNL)', link(url, esc(snl.value.beheer_type_desc)),
+      `Beheertype ${esc(snl.value.beheer_type)} · ${esc(snl.value.provincie_desc)}, plan ${esc(snl.value.subsidie_jaar)}<br>${link(url, 'uitleg in de Index Natuur en Landschap ›')}`);
+  }
 
   if (brp.status === 'fulfilled' && brp.value) {
     const g = brp.value;
-    html += card('Gewas (BRP)', esc(g.gewas), `${esc(g.category)} · gewascode ${esc(g.gewascode)} · ${esc(g.jaar)} (${esc(g.status.toLowerCase())})`);
+    html += card('Gewas (BRP)', link(cropUrl(g.gewas), esc(g.gewas)), `${esc(g.category)} · gewascode ${esc(g.gewascode)} · ${esc(g.jaar)} (${esc(g.status.toLowerCase())})`);
   }
 
   // De kaart die je bekijkt eerst
@@ -524,12 +540,12 @@ async function heightText(pt) {
 
 function observationAt(kind, pt) {
   const res = view.getResolution();
-  if (res > DETAIL_RES) return 'Zoom in om losse waarnemingen te zien';
+  if (res > DETAIL_RES) return 'Zoom in om losse waarnemingen te zien';  // let op: geeft HTML terug
   const f = L[`${kind}Punten`].getSource().getClosestFeatureToCoordinate(pt);
   const d = f ? distance(f.getGeometry().getCoordinates(), pt) : Infinity;
   if (d > Math.max(25, 40 * res)) return 'Geen waarneming op het vizier';
-  const names = [...f.get('soorten').values()];
-  const parts = [names.length > 3 ? `${names.slice(0, 3).join(', ')} +${names.length - 3}` : names.join(', ')];
+  const sp = [...f.get('soorten').values()];
+  const parts = [sp.slice(0, 3).map(speciesLink).join(', ') + (sp.length > 3 ? ` +${sp.length - 3}` : '')];
   if (f.get('datum')) parts.push(nlDate(f.get('datum')));
   parts.push(`${Math.round(d)} m`);
   return parts.join(' · ');
@@ -545,26 +561,26 @@ async function updateChip() {
       case 'bodem': {
         title = 'Bodem';
         const b = await featureInfo(WMS.bodem, pt);
-        text = b ? `${b.first_soilname || b.normal_soilprofile_name} (${b.soilcode})` : 'Niet gekarteerd';
+        text = b ? link(soilUrl(b.soilcode), `${esc(b.first_soilname || b.normal_soilprofile_name)} (${esc(b.soilcode)})`) : 'Niet gekarteerd';
         break;
       }
       case 'geo': {
         title = 'Landvorm';
         const g = await featureInfo(WMS.geo, pt);
-        text = g ? `${g.landformSubgroupDescription} (${g.landformSubgroupCode})` : 'Niet gekarteerd';
+        text = g ? link(g.landformSubgroupUrl, `${esc(g.landformSubgroupDescription)} (${esc(g.landformSubgroupCode)})`) : 'Niet gekarteerd';
         break;
       }
       case 'brp': {
         title = 'Gewas';
         const g = await featureInfo(WMS.brp, pt);
-        text = g ? `${g.gewas} (${g.category.toLowerCase()}, ${g.jaar})` : 'Geen landbouwperceel';
+        text = g ? `${link(cropUrl(g.gewas), esc(g.gewas))} (${esc(g.category.toLowerCase())}, ${esc(g.jaar)})` : 'Geen landbouwperceel';
         break;
       }
       case 'snl': {
         title = 'Natuurtype (SNL)';
         if (view.getResolution() > 14) { text = 'Zoom in om natuurtypen te zien'; break; }
         const n = await featureInfo(WMS.snl, pt);
-        text = n ? `${n.beheer_type_desc} (${n.beheer_type})` : 'Geen beheertype';
+        text = n ? link(await snlUrl(n.beheer_type), `${esc(n.beheer_type_desc)} (${esc(n.beheer_type)})`) : 'Geen beheertype';
         break;
       }
       case 'flora':
@@ -584,12 +600,13 @@ async function updateChip() {
     text = 'Niet bereikbaar';
   }
   if (seq !== chipSeq) return;  // inmiddels verschoven
-  chipEl.innerHTML = `<span class="chip-k">${esc(title)}</span>${esc(text)}`;
+  chipEl.innerHTML = `<span class="chip-k">${esc(title)}</span>${text}`;  // text is al ge-escapete HTML
   chipEl.hidden = false;
 }
 map.on('moveend', () => scheduleChip());
 // Tik op het label: volledige uitleg
-chipEl.addEventListener('click', () => {
+chipEl.addEventListener('click', (e) => {
+  if (e.target.closest('a')) return;  // een link gaat naar de uitleg zelf
   if (appEl.classList.contains('full')) setFull(false);
   showInfo();
 });
