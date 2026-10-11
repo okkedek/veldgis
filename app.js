@@ -242,6 +242,8 @@ async function loadObservations() {
       f.setId(id);
       source.addFeature(f);
     }
+    const datum = r.eventDate?.slice(0, 10);
+    if (datum && !(f.get('datum') >= datum)) f.set('datum', datum, true);  // laatste waarneming op deze plek
     if (!f.get('soorten').has(r.speciesKey)) {
       f.get('soorten').set(r.speciesKey, r.species);
       touched.add(f);
@@ -249,9 +251,10 @@ async function loadObservations() {
   }
   for (const f of touched) {
     for (const key of f.get('soorten').keys()) {
-      dutchName(key).then((n) => { if (n) { f.get('soorten').set(key, n); f.changed(); } });
+      dutchName(key).then((n) => { if (n) { f.get('soorten').set(key, n); f.changed(); scheduleChip(300); } });
     }
   }
+  scheduleChip(0);
 }
 
 // ---------- Positie ----------
@@ -287,13 +290,16 @@ const store = {
 
 // ---------- Hoofdlaag kiezen ----------
 const layerButtons = document.querySelectorAll('#layers button');
+let currentLayer = 'bodem';
 function setMainLayer(key) {
+  currentLayer = key;
   for (const name of ['topo', 'grijs', 'foto', 'bodem', 'geo', 'snl', 'tijd', 'floraDichtheid', 'floraPunten', 'vogelsDichtheid', 'vogelsPunten']) L[name].setVisible(STACKS[key].includes(name));
   map.render();  // direct hertekenen, niet wachten op een zoom/verschuiving
   loadObservations();
   layerButtons.forEach((b) => b.setAttribute('aria-checked', String(b.dataset.layer === key)));
   document.getElementById('year-row').hidden = key !== 'tijd';
   store.set('layer', key);
+  scheduleChip(0);
 }
 layerButtons.forEach((b) => b.addEventListener('click', () => setMainLayer(b.dataset.layer)));
 
@@ -317,6 +323,7 @@ function applyYear(y) {
   L.tijd.getSource().setUrl(
     `https://tiles.arcgis.com/tiles/nSZVuSZjHpEZZbRo/arcgis/rest/services/Historische_tijdreis_${y}/MapServer/tile/{z}/{y}/{x}`);
   store.set('year', Number(y));
+  scheduleChip(0);
 }
 yearInput.addEventListener('input', () => {
   yearLabel.textContent = yearInput.value;
@@ -487,6 +494,90 @@ map.on('moveend', () => {
   if (infoEl.hidden) return;
   clearTimeout(infoTimer);
   infoTimer = setTimeout(showInfo, 800);  // ververs tijdens lopen of verschuiven
+});
+
+// ---------- Infolabel linksboven: wat ligt onder het vizier op de kaart die je bekijkt ----------
+const chipEl = document.getElementById('chip');
+let chipTimer;
+let chipSeq = 0;
+function scheduleChip(delay = 400) {
+  clearTimeout(chipTimer);
+  chipTimer = setTimeout(updateChip, delay);
+}
+const nlDate = (d) => new Date(d).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' });
+
+async function heightText(pt) {
+  const a = await featureInfo(WMS.ahn, pt);
+  const h = a ? parseFloat(a.value_list) : NaN;
+  return Number.isFinite(h) && h < 1000
+    ? `${h.toLocaleString('nl-NL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} m +NAP`
+    : 'Geen hoogte (water of gebouw)';
+}
+
+function observationAt(kind, pt) {
+  const res = view.getResolution();
+  if (res > DETAIL_RES) return 'Zoom in om losse waarnemingen te zien';
+  const f = L[`${kind}Punten`].getSource().getClosestFeatureToCoordinate(pt);
+  const d = f ? distance(f.getGeometry().getCoordinates(), pt) : Infinity;
+  if (d > Math.max(25, 40 * res)) return 'Geen waarneming op het vizier';
+  const names = [...f.get('soorten').values()];
+  const parts = [names.length > 3 ? `${names.slice(0, 3).join(', ')} +${names.length - 3}` : names.join(', ')];
+  if (f.get('datum')) parts.push(nlDate(f.get('datum')));
+  parts.push(`${Math.round(d)} m`);
+  return parts.join(' · ');
+}
+
+async function updateChip() {
+  const seq = ++chipSeq;
+  const pt = view.getCenter();
+  let title = '';
+  let text = '';
+  try {
+    switch (currentLayer) {
+      case 'bodem': {
+        title = 'Bodem';
+        const b = await featureInfo(WMS.bodem, pt);
+        text = b ? `${b.first_soilname || b.normal_soilprofile_name} (${b.soilcode})` : 'Niet gekarteerd';
+        break;
+      }
+      case 'geo': {
+        title = 'Landvorm';
+        const g = await featureInfo(WMS.geo, pt);
+        text = g ? `${g.landformSubgroupDescription} (${g.landformSubgroupCode})` : 'Niet gekarteerd';
+        break;
+      }
+      case 'snl': {
+        title = 'Natuurtype (SNL)';
+        if (view.getResolution() > 14) { text = 'Zoom in om natuurtypen te zien'; break; }
+        const n = await featureInfo(WMS.snl, pt);
+        text = n ? `${n.beheer_type_desc} (${n.beheer_type})` : 'Geen beheertype';
+        break;
+      }
+      case 'flora':
+      case 'vogels':
+        title = currentLayer === 'flora' ? 'Flora' : 'Vogels';
+        text = observationAt(currentLayer, pt);
+        break;
+      case 'tijd':
+        title = `Tijdreis ${yearInput.value}`;
+        text = await heightText(pt);
+        break;
+      default:
+        title = 'Hoogte';
+        text = await heightText(pt);
+    }
+  } catch {
+    text = 'Niet bereikbaar';
+  }
+  if (seq !== chipSeq) return;  // inmiddels verschoven
+  chipEl.innerHTML = `<span class="chip-k">${esc(title)}</span>${esc(text)}`;
+  chipEl.hidden = false;
+}
+map.on('moveend', () => scheduleChip());
+// Tik op het label: volledige uitleg
+chipEl.addEventListener('click', () => {
+  if (appEl.classList.contains('full')) setFull(false);
+  showInfo();
 });
 
 // ---------- Start ----------

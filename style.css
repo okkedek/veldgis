@@ -44,6 +44,17 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
 }
 .round[aria-pressed="true"] { background: var(--gps); color: #fff; }
 
+/* Infolabel linksboven: wat ligt onder het vizier */
+.chip {
+  position: absolute; top: max(12px, env(safe-area-inset-top)); left: 12px; z-index: 5;
+  max-width: calc(100% - 112px); text-align: left;
+  background: var(--paper); border: 2px solid var(--line); border-radius: 14px;
+  padding: 7px 12px 8px; font-size: 17px; font-weight: 700; line-height: 1.25;
+  box-shadow: 0 2px 8px rgba(0,0,0,.25);
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+}
+.chip-k { display: block; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+
 /* Wissel tussen schermvullende kaart en kaartkeuze */
 .round-bottom { top: auto; bottom: 12px; color: var(--ink); }
 .round-bottom[aria-pressed="true"] { background: var(--paper); color: var(--ink); bottom: max(12px, env(safe-area-inset-bottom)); }
