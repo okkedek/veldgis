@@ -24,6 +24,7 @@ const WMS = {
   bodem: { url: `${PDOK}/bzk/bro-bodemkaart/wms/v1_0`, layer: 'soilarea' },
   geo: { url: `${PDOK}/bzk/bro-geomorfologischekaart/wms/v2_0`, layer: 'geomorphological_area' },
   ahn: { url: `${PDOK}/rws/ahn/wms/v1_0`, layer: 'dtm_05m' },
+  brp: { url: `${PDOK}/rvo/brpgewaspercelen/wms/v1_0`, layer: 'BrpGewas' },
   // SNL-beheertypenkaart uit het Natuurbeheerplan (BIJ12); de stijl kiest het plan van dit jaar
   snl: { url: 'https://geoservices.portaalnatuurenlandschap.nl/geoserver/IMNa_NBP/wms', layer: 'imna_nbp_viewer_beheer_gebied', style: 'IMNa_2026_definitief_beheergebied' },
 };
@@ -47,6 +48,7 @@ const L = {
   foto: wmts(`${PDOK}/hwh/luchtfotorgb/wmts/v1_0/Actueel_orthoHR/EPSG:28992/{z}/{x}/{y}.jpeg`, 'Luchtfoto © Beeldmateriaal NL'),
   bodem: wms(WMS.bodem, 'Bodemkaart © BRO / WUR', 0.85),
   geo: wms(WMS.geo, 'Geomorfologische kaart © BRO / WUR', 0.85),
+  brp: wms(WMS.brp, 'Gewaspercelen (BRP) © RVO / PDOK', 0.8),
   snl: wms(WMS.snl, 'Beheertypen Natuurbeheerplan © BIJ12 / provincies', 0.75, 14),  // de dienst tekent pas vanaf ~1:50.000
   tijd: new ol.layer.Tile({
     visible: false,
@@ -63,6 +65,7 @@ const STACKS = {
   flora: ['grijs', 'floraDichtheid', 'floraPunten'],
   vogels: ['grijs', 'vogelsDichtheid', 'vogelsPunten'],
   snl: ['grijs', 'snl'],
+  brp: ['grijs', 'brp'],
   tijd: ['tijd'],
 };
 
@@ -274,7 +277,7 @@ const posLayer = new ol.layer.Vector({ source: posSource, zIndex: 100 });
 // ---------- Kaart ----------
 const map = new ol.Map({
   target: 'map',
-  layers: [L.topo, L.grijs, L.foto, L.bodem, L.geo, L.tijd, L.snl, L.floraDichtheid, L.vogelsDichtheid, L.relief, L.floraPunten, L.vogelsPunten, posLayer],
+  layers: [L.topo, L.grijs, L.foto, L.bodem, L.geo, L.brp, L.tijd, L.snl, L.floraDichtheid, L.vogelsDichtheid, L.relief, L.floraPunten, L.vogelsPunten, posLayer],
   controls: [new ol.control.Attribution({ collapsible: true })],
   view: new ol.View({ projection: RD, center: [155000, 463000], resolution: 215, maxResolution: 860, minResolution: 0.1, constrainResolution: false }),
 });
@@ -293,7 +296,7 @@ const layerButtons = document.querySelectorAll('#layers button');
 let currentLayer = 'bodem';
 function setMainLayer(key) {
   currentLayer = key;
-  for (const name of ['topo', 'grijs', 'foto', 'bodem', 'geo', 'snl', 'tijd', 'floraDichtheid', 'floraPunten', 'vogelsDichtheid', 'vogelsPunten']) L[name].setVisible(STACKS[key].includes(name));
+  for (const name of ['topo', 'grijs', 'foto', 'bodem', 'geo', 'brp', 'snl', 'tijd', 'floraDichtheid', 'floraPunten', 'vogelsDichtheid', 'vogelsPunten']) L[name].setVisible(STACKS[key].includes(name));
   map.render();  // direct hertekenen, niet wachten op een zoom/verschuiving
   loadObservations();
   layerButtons.forEach((b) => b.setAttribute('aria-checked', String(b.dataset.layer === key)));
@@ -443,8 +446,8 @@ async function showInfo() {
   infoTitle.textContent = follow && myPos ? 'Hier sta je' : 'Op het vizier';
   if (!infoBody.innerHTML) infoBody.innerHTML = '<p class="loading">Ophalen…</p>';
 
-  const [bodem, geo, ahn, snl, flora, vogels] = await Promise.allSettled([
-    featureInfo(WMS.bodem, pt), featureInfo(WMS.geo, pt), featureInfo(WMS.ahn, pt), featureInfo(WMS.snl, pt),
+  const [bodem, geo, ahn, snl, brp, flora, vogels] = await Promise.allSettled([
+    featureInfo(WMS.bodem, pt), featureInfo(WMS.geo, pt), featureInfo(WMS.ahn, pt), featureInfo(WMS.snl, pt), featureInfo(WMS.brp, pt),
     speciesNear('flora', pt), speciesNear('vogels', pt),
   ]);
   if (seq !== infoSeq) return; // er is inmiddels een nieuwere vraag
@@ -470,6 +473,11 @@ async function showInfo() {
   if (snl.status === 'rejected') html += card('Natuurtype (SNL)', 'Niet bereikbaar');
   else if (!snl.value) html += card('Natuurtype (SNL)', 'Geen beheertype', 'Valt buiten het Natuurbeheerplan.');
   else html += card('Natuurtype (SNL)', esc(snl.value.beheer_type_desc), `Beheertype ${esc(snl.value.beheer_type)} · ${esc(snl.value.provincie_desc)}, plan ${esc(snl.value.subsidie_jaar)}`);
+
+  if (brp.status === 'fulfilled' && brp.value) {
+    const g = brp.value;
+    html += card('Gewas (BRP)', esc(g.gewas), `${esc(g.category)} · gewascode ${esc(g.gewascode)} · ${esc(g.jaar)} (${esc(g.status.toLowerCase())})`);
+  }
 
   // De kaart die je bekijkt eerst
   const species = [speciesCard('flora', 'Flora in de buurt', flora), speciesCard('vogels', 'Vogels in de buurt', vogels)];
@@ -544,6 +552,12 @@ async function updateChip() {
         title = 'Landvorm';
         const g = await featureInfo(WMS.geo, pt);
         text = g ? `${g.landformSubgroupDescription} (${g.landformSubgroupCode})` : 'Niet gekarteerd';
+        break;
+      }
+      case 'brp': {
+        title = 'Gewas';
+        const g = await featureInfo(WMS.brp, pt);
+        text = g ? `${g.gewas} (${g.category.toLowerCase()}, ${g.jaar})` : 'Geen landbouwperceel';
         break;
       }
       case 'snl': {

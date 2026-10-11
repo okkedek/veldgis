@@ -44,8 +44,9 @@ Zo heb je geen apart menu nodig om een positie te kiezen. Er staat bewust geen s
 │ ├──────────────────────────┤ │
 │ │ Reliëf  ━━━━●━━━━━━━  40%│ │  ← mengslider AHN-reliëf
 │ ├──────────────────────────┤ │
-│ │[Topo][Foto][Bodem][Geo]  │ │  ← laagkiezer, 4 × 2 grote knoppen
-│ │[Flora][Vogels][SNL][Tijd]│ │
+│ │[Topo] [Foto]  [Tijdreis] │ │  ← laagkiezer, 3 × 3 grote knoppen
+│ │[Bodem][Geo]   [Gewassen] │ │
+│ │[SNL]  [Flora] [Vogels]   │ │
 │ ├──────────────────────────┤ │
 │ │      WAT IS HIER?        │ │  ← grote knop, opent infopaneel
 │ └──────────────────────────┘ │
@@ -77,6 +78,7 @@ Alle lagen zijn **getest**: ze werken, zijn CORS-vrij en draaien in RD (EPSG:289
 | Geomorfologie | BRO Geomorfologische kaart | WMS `bzk/bro-geomorfologischekaart/wms/v2_0`, laag `geomorphological_area` | landvorm, genese, reliëf, link naar WUR-legenda |
 | Flora | GBIF (vooral Waarneming.nl/ObsIdentify, Dutch Vegetation Database, Pl@ntNet, iNaturalist) | Uitgezoomd: dichtheidstegels `v2/map/occurrence/density` (planten, NL, sinds 2000). Ingezoomd: waarnemingen via `v1/occurrence/search`, gegroepeerd per plek, met Nederlandse namen (Nederlands Soortenregister) | plantensoorten binnen 100 m |
 | Vogels | GBIF (vooral Waarneming.nl, eBird), alleen menselijke waarnemingen sinds 2020 (zonder GPS-zenderdata) | Zelfde opzet als Flora | vogelsoorten binnen 250 m |
+| Gewassen (BRP) | RVO / PDOK Basisregistratie Gewaspercelen | WMS `rvo/brpgewaspercelen/wms/v1_0`, laag `BrpGewas` | gewas, categorie, jaar |
 | SNL-natuurtypen | Natuurbeheerplan, BIJ12 / provincies | WMS `geoservices.portaalnatuurenlandschap.nl/geoserver/IMNa_NBP/wms`, laag `imna_nbp_viewer_beheer_gebied`, stijl `IMNa_2026_definitief_beheergebied` | beheertype (bijv. N07.01 Droge heide) |
 | Hoogte | AHN | WMS `rws/ahn/wms/v1_0`, laag `dtm_05m` (alleen voor de hoogte in "Wat is hier?") | hoogte in m NAP |
 | Reliëf (schaduw) | AHN | WCS `rws/ahn/wcs/v1_0`, coverage `dtm_05m`; schaduw berekend in de browser | – |
@@ -119,7 +121,7 @@ Zo zie je met reliëf op 50% stuwwallen, dekzandruggen, beekdalen en droogdalen 
 
 **Fase 1: prototype (nu gebouwd)**
 - Kaart in RD met vizier, GPS volgen en zelf positie kiezen door te verschuiven
-- 8 hoofdlagen (Topo, Luchtfoto, Bodem, Geomorfologie, Flora, Vogels, SNL, Tijdreis), reliëf-mengslider, tijdreis-jaarslider
+- 9 hoofdlagen (Topo, Luchtfoto, Tijdreis, Bodem, Geomorfologie, Gewassen, SNL, Flora, Vogels), reliëf-mengslider, tijdreis-jaarslider
 - Installeerbaar als app (PWA met manifest, iconen en service worker); start ook zonder bereik
 - Wisselen tussen schermvullende kaart en kaartkeuze
 - "Wat is hier?" met bodem, landvorm, planten in de buurt en hoogte
